@@ -2,19 +2,30 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import re
 import shutil
 import uuid
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Mapping, Optional
 
-from bundle import WorldConfig
+from .experiment_executor import ExperimentExecutor
 
 
-class IdeaStatus(Enum):
+@dataclass(frozen=True)
+class BackendConfig:
+    repo_root: Path
+    namespace_dir: Path
+    init_code_path: Path
+    runner_command: tuple[str, ...]
+    code_filename: str
+    readable_files: Mapping[str, str]
+    metric_pattern: str
+    peak_vram_pattern: str
+
+
+class ExperimentStatus(Enum):
     PENDING = "pending"
     RUNNING = "running"
     SUCCESS = "success"
@@ -22,7 +33,7 @@ class IdeaStatus(Enum):
 
 
 @dataclass
-class Idea:
+class ExperimentNode:
     node_id: str
     parent_id: Optional[str]
     illustration: str
@@ -31,7 +42,7 @@ class Idea:
     peak_vram_mb: float | None = None
     memory_gb: float | None = None
     exit_code: int | None = None
-    status: IdeaStatus = IdeaStatus.PENDING
+    status: ExperimentStatus = ExperimentStatus.PENDING
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -50,61 +61,8 @@ class Idea:
         return json.dumps(self.as_dict(), indent=2, ensure_ascii=False)
 
 
-class Executor:
-    def __init__(self, gpu_ids: list[int | None] | None) -> None:
-        slots = gpu_ids or [None]
-        self.available_gpus: asyncio.Queue[int | None] = asyncio.Queue()
-        for gpu_id in slots:
-            self.available_gpus.put_nowait(gpu_id)
-
-    async def execute(self, world: "ResearchWorld", idea: Idea) -> None:
-        gpu_id = await self.available_gpus.get()
-        idea_dir = world.node_dir(idea.node_id)
-        stdout_path = idea_dir / "stdout.log"
-        stderr_path = idea_dir / "stderr.log"
-        script_path = idea_dir / world.code_filename
-
-        env = os.environ.copy()
-        if gpu_id is not None:
-            env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
-        pythonpath_parts = [str(world.repo_root)]
-        if env.get("PYTHONPATH"):
-            pythonpath_parts.append(env["PYTHONPATH"])
-        env["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
-
-        command = [*world.runner_command, os.path.relpath(script_path, world.repo_root)]
-        gpu_label = "default" if gpu_id is None else str(gpu_id)
-        print(f"Executing {idea.node_id} on slot {gpu_label}", flush=True)
-
-        try:
-            world.update_idea(idea.node_id, status=IdeaStatus.RUNNING)
-            with stdout_path.open("w") as f_out, stderr_path.open("w") as f_err:
-                proc = await asyncio.create_subprocess_exec(
-                    *command,
-                    cwd=str(world.repo_root),
-                    env=env,
-                    stdout=f_out,
-                    stderr=f_err,
-                )
-                await proc.wait()
-
-            summary = world.extract_summary(idea.node_id)
-            world.update_idea(
-                idea.node_id,
-                exit_code=proc.returncode,
-                metric=summary["metric"],
-                peak_vram_mb=summary["peak_vram_mb"],
-                memory_gb=summary["memory_gb"],
-                status=IdeaStatus.SUCCESS if proc.returncode == 0 and summary["metric"] is not None else IdeaStatus.FAILED,
-            )
-        except Exception:
-            world.update_idea(idea.node_id, status=IdeaStatus.FAILED)
-        finally:
-            self.available_gpus.put_nowait(gpu_id)
-
-
-class ResearchWorld:
-    def __init__(self, config: WorldConfig, gpu_ids: list[int | None] | None = None) -> None:
+class ExperimentBackend:
+    def __init__(self, config: BackendConfig, gpu_ids: list[int | None] | None = None) -> None:
         self.config = config
         self.repo_root = config.repo_root
         self.namespace = config.namespace_dir
@@ -114,27 +72,27 @@ class ResearchWorld:
         self.readable_files = dict(config.readable_files)
         self.metric_re = re.compile(config.metric_pattern, re.MULTILINE)
         self.peak_vram_re = re.compile(config.peak_vram_pattern, re.MULTILINE)
-        self.nodes: dict[str, Idea] = {}
-        self.executor = Executor(gpu_ids)
+        self.nodes: dict[str, ExperimentNode] = {}
+        self.executor = ExperimentExecutor(gpu_ids)
         self.root_id: str | None = None
 
-    def initialize(self, clear: bool = True) -> Idea:
+    def initialize(self, clear: bool = True) -> ExperimentNode:
         if clear and self.namespace.exists():
             shutil.rmtree(self.namespace)
         self.namespace.mkdir(parents=True, exist_ok=True)
         self.nodes = {}
         self.root_id = None
 
-        root = Idea(
+        root = ExperimentNode(
             node_id=self.new_node_id(),
             parent_id=None,
             illustration="baseline",
             tldr="baseline",
-            status=IdeaStatus.PENDING,
+            status=ExperimentStatus.PENDING,
         )
         self.nodes[root.node_id] = root
         self.root_id = root.node_id
-        self.persist_idea(root)
+        self.persist_experiment(root)
         shutil.copy(self.init_code_path, self.node_dir(root.node_id) / self.code_filename)
         return root
 
@@ -146,33 +104,33 @@ class ResearchWorld:
         path.mkdir(parents=True, exist_ok=True)
         return path
 
-    def persist_idea(self, idea: Idea) -> None:
-        (self.node_dir(idea.node_id) / "meta.json").write_text(idea.as_json())
+    def persist_experiment(self, experiment: ExperimentNode) -> None:
+        (self.node_dir(experiment.node_id) / "meta.json").write_text(experiment.as_json())
 
-    def update_idea(self, node_id: str, **updates) -> Idea:
-        idea = self.nodes[node_id]
+    def update_experiment(self, node_id: str, **updates) -> ExperimentNode:
+        experiment = self.nodes[node_id]
         for key, value in updates.items():
-            setattr(idea, key, value)
-        self.persist_idea(idea)
-        return idea
+            setattr(experiment, key, value)
+        self.persist_experiment(experiment)
+        return experiment
 
-    def add_idea(self, *, parent_id: str | None, tldr: str, illustration: str) -> Idea:
-        idea = Idea(
+    def add_experiment(self, *, parent_id: str | None, tldr: str, illustration: str) -> ExperimentNode:
+        experiment = ExperimentNode(
             node_id=self.new_node_id(),
             parent_id=parent_id,
             tldr=tldr,
             illustration=illustration,
-            status=IdeaStatus.PENDING,
+            status=ExperimentStatus.PENDING,
         )
-        self.nodes[idea.node_id] = idea
-        self.persist_idea(idea)
-        return idea
+        self.nodes[experiment.node_id] = experiment
+        self.persist_experiment(experiment)
+        return experiment
 
     def has_code(self, node_id: str) -> bool:
         return (self.node_dir(node_id) / self.code_filename).exists()
 
-    def pending_nodes(self) -> list[Idea]:
-        return [node for node in self.nodes.values() if node.status == IdeaStatus.PENDING]
+    def pending_nodes(self) -> list[ExperimentNode]:
+        return [node for node in self.nodes.values() if node.status == ExperimentStatus.PENDING]
 
     async def run_pending_experiments(self) -> None:
         pending = self.pending_nodes()
@@ -180,11 +138,22 @@ class ResearchWorld:
             return
         await asyncio.gather(*(self.executor.execute(self, node) for node in pending))
 
-    def best_success(self) -> Idea | None:
-        candidates = [node for node in self.nodes.values() if node.status == IdeaStatus.SUCCESS and node.metric is not None]
+    def best_success(self) -> ExperimentNode | None:
+        candidates = [
+            node for node in self.nodes.values() if node.status == ExperimentStatus.SUCCESS and node.metric is not None
+        ]
         if not candidates:
             return None
-        return min(candidates, key=lambda node: node.metric)
+        return min(candidates, key=lambda node: node.metric if node.metric is not None else float("inf"))
+
+    def get_root_id(self) -> str | None:
+        return self.root_id
+
+    def has_node(self, node_id: str) -> bool:
+        return node_id in self.nodes
+
+    def get_node_record(self, node_id: str) -> dict[str, object]:
+        return self.nodes[node_id].as_dict()
 
     def snapshot(self) -> str:
         roots = [nid for nid, node in self.nodes.items() if not node.parent_id or node.parent_id not in self.nodes]
@@ -232,7 +201,7 @@ class ResearchWorld:
         stdout_path = self.node_dir(node_id) / "stdout.log"
         if not stdout_path.exists():
             stdout_path.write_text("")
-        self.update_idea(node_id, status=IdeaStatus.FAILED, exit_code=exit_code)
+        self.update_experiment(node_id, status=ExperimentStatus.FAILED, exit_code=exit_code)
 
     def read_meta(self, node_id: str) -> str:
         return self._read_node_file(node_id, "meta.json")
@@ -245,18 +214,6 @@ class ResearchWorld:
 
     def read_stderr(self, node_id: str) -> str:
         return self._read_node_file(node_id, "stderr.log", missing_ok=True)
-
-    def make_tool_handlers(self) -> dict[str, Callable[[str], str]]:
-        handlers: dict[str, Callable[[str], str]] = {}
-        for tool_name, relative_path in self.readable_files.items():
-            handlers[tool_name] = self._make_reader(relative_path)
-        return handlers
-
-    def _make_reader(self, relative_path: str) -> Callable[[str], str]:
-        def reader(node_id: str) -> str:
-            return self._read_node_file(node_id, relative_path, missing_ok=True)
-
-        return reader
 
     def _read_node_file(self, node_id: str, relative_path: str, missing_ok: bool = False) -> str:
         path = self.node_dir(node_id) / relative_path

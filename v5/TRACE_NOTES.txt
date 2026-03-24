@@ -1,0 +1,39 @@
+This bundle adds uniform trace instrumentation to both execution paths.
+
+What is traced
+--------------
+Both the generic runtime and the emitted residual kernel now record the same
+event schema:
+
+- oracle_request
+  {role, phase, messages, stop}
+- oracle_response
+  {role, phase, raw}
+- tool_request
+  {role, phase, tool, argument}
+- tool_result
+  {role, phase, tool, argument, result}
+- phase_output
+  {role, phase, writes, value}
+
+Why this matters
+----------------
+The emitted kernel can now be checked against the generic runtime at the level
+of observable oracle interaction, not only at the level of final task output.
+
+Key files
+---------
+- compiler.py
+  emit_python_kernel() now emits a kernel with trace support.
+- runtime.py
+  Generic runtime with the same trace event protocol.
+- compiled_kernel.py
+  Standalone residual kernel generated from compiler.py + spec.py.
+- trace_compare_smoke_test.py
+  Runs both paths on the same deterministic world and asserts trace equality.
+
+Smoke test result
+-----------------
+The included trace_compare_smoke_test.py passes and reports that the generic
+runtime trace and residual runtime trace are identical on a scenario that
+includes both tool calls and ordinary phase outputs.

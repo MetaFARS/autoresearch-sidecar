@@ -4,13 +4,29 @@ version = "0.1.0"
 description = "A sidecar agent runtime for Karpathy-style autoresearch repositories."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
 dependencies = [
     "requests>=2.32.0",
 ]
 
 [project.scripts]
-autoresearch-sidecar = "main:main"
+autoresearch-sidecar = "autoresearch_sidecar.cli:main"
 
 [tool.uv]
-package = false
+package = true
+
+[tool.setuptools.packages.find]
+include = ["autoresearch_sidecar"]
+
+[tool.ruff]
+extend-exclude = ["v0", "v1", "v2", "v3", "v4", "v5", "v6"]
+
+[tool.mypy]
+exclude = "^(v0|v1|v2|v3|v4|v5|v6)/"
+
+[[tool.mypy.overrides]]
+module = ["requests"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

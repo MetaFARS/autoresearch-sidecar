@@ -1,0 +1,17 @@
+CompiledProgram<autoresearch_program>
+
+Roles:
+- planner: inputs=['snapshot'] outputs=['proposals']
+    phase investigate: reads=['snapshot'] writes=['research_notes'] tools=['read_meta', 'read_code', 'read_stdout', 'read_stderr']
+    phase emit_proposals: reads=['snapshot', 'research_notes'] writes=['proposals'] tools=[]
+- implementer: inputs=['illustration', 'node_id', 'parent_id', 'snapshot', 'tldr'] outputs=['python_source']
+    phase inspect_parent: reads=['snapshot', 'node_id', 'parent_id', 'tldr', 'illustration'] writes=['implementation_plan'] tools=['read_meta', 'read_code', 'read_stdout', 'read_stderr']
+    phase emit_code: reads=['snapshot', 'node_id', 'parent_id', 'tldr', 'illustration', 'implementation_plan'] writes=['python_source'] tools=[]
+
+Workflow slots:
+- current_node
+- implementer_run
+- new_node_ids
+- pending_node_ids
+- planner_run
+- snapshot

@@ -1,65 +1,13 @@
 from __future__ import annotations
 
 import json
-import re
-from dataclasses import dataclass
-from typing import Any, Callable, Mapping
+from typing import Any
 
 import requests
 
-
-JsonDict = dict[str, Any]
-StateDict = dict[str, Any]
-Parser = Callable[[str], Any]
-Validator = Callable[[Any], Any]
-ToolHandler = Callable[[str], str]
-
-
-@dataclass(frozen=True)
-class ToolSpec:
-    signature: str
-    description: str
-
-    def render(self) -> str:
-        return f"{self.signature}: {self.description}"
-
-
-@dataclass(frozen=True)
-class OutputSpec:
-    instructions: str
-    parser: Parser
-    validator: Validator | None = None
-
-
-@dataclass(frozen=True)
-class PhaseSpec:
-    name: str
-    purpose: str
-    reads: tuple[str, ...]
-    writes: str
-    instructions: str
-    output: OutputSpec
-    allow_tools: bool = False
-    allowed_tools: tuple[str, ...] = ()
-    max_tool_rounds: int = 8
-
-
-@dataclass(frozen=True)
-class RoleSpec:
-    name: str
-    purpose: str
-    system_context: str
-    required_inputs: tuple[str, ...]
-    field_descriptions: Mapping[str, str]
-    phases: tuple[PhaseSpec, ...]
-    invariants: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True)
-class ToolInvocation:
-    name: str
-    argument: str
-    raw_text: str
+from .tool_environment import ToolHost
+from .agent_trace import JsonDict, copy_messages, copy_value, emit_trace
+from .workflow_spec import PhaseSpec, RoleSpec, StateDict
 
 
 class ChatCompletionClient:
@@ -108,69 +56,17 @@ class ChatCompletionClient:
         raise RuntimeError(f"Model returned non-text content: {message}")
 
 
-class ToolHost:
-    TOOL_CALL_RE = re.compile(
-        r"<tool>\s*([A-Za-z_][A-Za-z0-9_]*)\(\s*[\"'](.*?)[\"']\s*\)\s*</tool>",
-        re.DOTALL,
-    )
-
+class RoleRunner:
     def __init__(
         self,
-        tool_specs: Mapping[str, ToolSpec],
-        handlers: Mapping[str, ToolHandler],
+        client: ChatCompletionClient,
+        tool_host: ToolHost,
+        trace: list[JsonDict] | None = None,
+        debug_mode: bool = False,
     ) -> None:
-        self.tool_specs = dict(tool_specs)
-        self.handlers = dict(handlers)
-
-    def render_protocol(self, allowed_tools: tuple[str, ...]) -> str:
-        lines = ["Allowed tools for this phase:"]
-        for name in allowed_tools:
-            spec = self.tool_specs[name]
-            lines.append(f"- {spec.render()}")
-        lines.extend(
-            (
-                "",
-                "Tool protocol:",
-                "- Emit exactly one tool call wrapped as <tool>...</tool><stop>.",
-                "- Only one tool call is allowed per assistant turn.",
-                "- After the host injects <result>...</result>, continue the same phase.",
-                "- When investigation is complete, stop calling tools and emit the required phase output.",
-            )
-        )
-        return "\n".join(lines)
-
-    def parse(self, raw_text: str) -> ToolInvocation | None:
-        match = self.TOOL_CALL_RE.search(raw_text)
-        if not match:
-            return None
-        return ToolInvocation(
-            name=match.group(1),
-            argument=match.group(2),
-            raw_text=match.group(0).strip(),
-        )
-
-    def execute(self, tool_name: str, argument: str, allowed_tools: tuple[str, ...]) -> str:
-        if tool_name not in allowed_tools:
-            return f"Error: tool '{tool_name}' is not allowed in this phase."
-        handler = self.handlers.get(tool_name)
-        if handler is None:
-            return f"Error: unknown tool '{tool_name}'."
-        try:
-            result = handler(argument)
-        except Exception as exc:  # pragma: no cover - defensive host boundary
-            return f"Error: {tool_name}({argument!r}) failed with {exc!r}."
-        return result if isinstance(result, str) else json.dumps(result, indent=2, ensure_ascii=False)
-
-
-class RoleRunner:
-    TOOL_BLOCK_RE = re.compile(
-        r"(.*?<tool>\s*[A-Za-z_][A-Za-z0-9_]*\(\s*[\"'].*?[\"']\s*\)\s*</tool>\s*<stop>)",
-        re.DOTALL,
-    )
-
-    def __init__(self, client: ChatCompletionClient, tool_host: ToolHost, debug_mode: bool = False) -> None:
         self.client = client
         self.tool_host = tool_host
+        self.trace = trace
         self.debug_mode = debug_mode
 
     def run(self, role: RoleSpec, initial_state: StateDict) -> StateDict:
@@ -185,6 +81,14 @@ class RoleRunner:
             if phase.output.validator is not None:
                 parsed = phase.output.validator(parsed)
             state[phase.writes] = parsed
+            emit_trace(
+                self.trace,
+                "phase_output",
+                role=role.name,
+                phase=phase.name,
+                writes=[phase.writes],
+                value=copy_value(parsed),
+            )
         return state
 
     def _run_phase(self, role: RoleSpec, phase: PhaseSpec, state: StateDict) -> str:
@@ -195,13 +99,19 @@ class RoleRunner:
 
         tool_rounds = 0
         while True:
-            raw = self.client.complete(history, stop=["<stop>"] if phase.allow_tools else None)
-            normalized = raw
-            if phase.allow_tools and "</tool>" in raw and "<stop>" not in raw:
-                normalized = f"{raw}<stop>"
-
-            match = self.TOOL_BLOCK_RE.search(normalized) if phase.allow_tools else None
-            if match is None:
+            stop_tokens = ["<stop>"] if phase.allow_tools else None
+            emit_trace(
+                self.trace,
+                "oracle_request",
+                role=role.name,
+                phase=phase.name,
+                messages=copy_messages(history),
+                stop=list(stop_tokens) if stop_tokens is not None else None,
+            )
+            raw = self.client.complete(history, stop=stop_tokens)
+            emit_trace(self.trace, "oracle_response", role=role.name, phase=phase.name, raw=raw)
+            turn = self.tool_host.parse_turn(raw) if phase.allow_tools else None
+            if turn is None:
                 history.append({"role": "assistant", "content": raw})
                 if self.debug_mode:
                     print(f"\n[phase {phase.name} output]\n{raw}\n", flush=True)
@@ -210,14 +120,15 @@ class RoleRunner:
             if tool_rounds >= phase.max_tool_rounds:
                 raise RuntimeError(f"Phase {phase.name} exceeded its tool budget ({phase.max_tool_rounds}).")
 
-            assistant_message = match.group(1).strip()
-            history.append({"role": "assistant", "content": assistant_message})
-
-            invocation = self.tool_host.parse(assistant_message)
-            if invocation is None:
-                raise ValueError(f"Malformed tool call in phase {phase.name}: {assistant_message}")
-
-            tool_result = self.tool_host.execute(invocation.name, invocation.argument, phase.allowed_tools)
+            history.append({"role": "assistant", "content": turn.assistant_message})
+            invocation = turn.invocation
+            tool_result = self.tool_host.execute(
+                invocation.name,
+                invocation.argument,
+                phase.allowed_tools,
+                role_name=role.name,
+                phase_name=phase.name,
+            )
             history.append({"role": "user", "content": f"<result>\n{tool_result}\n</result>"})
             tool_rounds += 1
 
@@ -246,10 +157,7 @@ class RoleRunner:
         lines = ["Phase state bindings:"]
         for field_name in phase.reads:
             description = role.field_descriptions.get(field_name, "")
-            if description:
-                lines.append(f"\n[{field_name}] {description}")
-            else:
-                lines.append(f"\n[{field_name}]")
+            lines.append(f"\n[{field_name}] {description}" if description else f"\n[{field_name}]")
             lines.append(self._serialize(state.get(field_name)))
         lines.append("\nEmit the required phase output now.")
         return "\n".join(lines)

@@ -2,69 +2,52 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping
 
-from runtime import ToolSpec
-
-
-@dataclass(frozen=True)
-class WorldConfig:
-    repo_root: Path
-    namespace_dir: Path
-    init_code_path: Path
-    runner_command: tuple[str, ...]
-    code_filename: str
-    readable_files: Mapping[str, str]
-    metric_pattern: str
-    peak_vram_pattern: str
+from .tool_environment import ToolEnvironment, ToolSpec
+from .experiment_backend import BackendConfig
+from .orchestrator_factory import OrchestratorConfig
+from .work_context import WorkContext
 
 
 @dataclass(frozen=True)
-class ProgramConfig:
-    research_world_context: str
-    contract: str
-    tool_specs: Mapping[str, ToolSpec]
-    required_parent_anchors: tuple[str, ...]
-    forbidden_new_patterns: tuple[str, ...]
+class ExperimentContract:
+    name: str
+    backend: BackendConfig
+    work_context: WorkContext
+    tools: ToolEnvironment
+    orchestrator: OrchestratorConfig
     default_model: str = "openai/gpt-5.2"
     default_base_url: str = "https://openrouter.ai/api/v1/chat/completions"
 
 
-@dataclass(frozen=True)
-class ResearchBundle:
-    name: str
-    world: WorldConfig
-    program: ProgramConfig
-
-
-def make_karpathy_autoresearch_bundle(
+def make_karpathy_experiment_contract(
     repo_root: str | Path,
     namespace_dir: str | Path | None = None,
-) -> ResearchBundle:
+) -> ExperimentContract:
     repo_root = Path(repo_root).resolve()
     namespace_dir = Path(namespace_dir).resolve() if namespace_dir else (repo_root / "namespace").resolve()
 
     tool_specs = {
         "read_meta": ToolSpec(
             signature="read_meta(node_id: str) -> str",
-            description="Read the metadata JSON for a research node.",
+            description="Read the metadata JSON for an experiment node.",
         ),
         "read_code": ToolSpec(
             signature="read_code(node_id: str) -> str",
-            description="Read the train.py source for a research node.",
+            description="Read the train.py source for an experiment node.",
         ),
         "read_stdout": ToolSpec(
             signature="read_stdout(node_id: str) -> str",
-            description="Read the stdout log for a research node.",
+            description="Read the stdout log for an experiment node.",
         ),
         "read_stderr": ToolSpec(
             signature="read_stderr(node_id: str) -> str",
-            description="Read the stderr log for a research node.",
+            description="Read the stderr log for an experiment node.",
         ),
     }
 
-    research_world_context = """
-The research world manages isolated train.py variants under namespace/<node_id>/train.py.
+    experiment_context = """
+The experiment backend manages isolated train.py variants under namespace/<node_id>/train.py.
 Each node is an experiment with:
 - node_id: unique node identifier.
 - parent_id: the base node this experiment extends.
@@ -76,10 +59,10 @@ Each node is an experiment with:
 - status: pending, running, success, or failed.
 """.strip()
 
-    contract = """
-You are operating inside Karpathy's autoresearch pipeline.
+    target_contract = """
+You are operating inside Karpathy's experiment pipeline.
 
-Ground rules derived from README.md and program.md:
+Ground rules derived from the repository contract:
 - The goal is to lower val_bpb. Smaller is always better.
 - The training budget is fixed by prepare.py, so experiments must remain comparable under that wall-clock budget.
 - Only train.py may change. prepare.py and its evaluation harness are read-only.
@@ -90,9 +73,9 @@ Ground rules derived from README.md and program.md:
 - Experiments run from the repository root so they reuse the real prepare.py, tokenizer, data, and environment.
 """.strip()
 
-    return ResearchBundle(
-        name="karpathy_autoresearch",
-        world=WorldConfig(
+    return ExperimentContract(
+        name="karpathy_experiment",
+        backend=BackendConfig(
             repo_root=repo_root,
             namespace_dir=namespace_dir,
             init_code_path=repo_root / "train.py",
@@ -107,10 +90,12 @@ Ground rules derived from README.md and program.md:
             metric_pattern=r"^val_bpb:\s*(-?\d+(?:\.\d+)?)\s*$",
             peak_vram_pattern=r"^peak_vram_mb:\s*(-?\d+(?:\.\d+)?)\s*$",
         ),
-        program=ProgramConfig(
-            research_world_context=research_world_context,
-            contract=contract,
-            tool_specs=tool_specs,
+        work_context=WorkContext(
+            experiment_context=experiment_context,
+            target_contract=target_contract,
+        ),
+        tools=ToolEnvironment(tool_specs=tool_specs),
+        orchestrator=OrchestratorConfig(
             required_parent_anchors=(
                 "from prepare import",
                 "MAX_SEQ_LEN",

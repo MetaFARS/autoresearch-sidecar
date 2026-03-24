@@ -1,0 +1,7 @@
+Module-bundle emission notes for autoresearch_program
+
+Emitted package: autoresearch_bundle
+
+- host-driven methods: ('add_idea', 'get_node_record', 'has_code', 'pending_nodes', 'run_pending_experiments', 'snapshot', 'write_code')
+- tool-driven methods: ('read_code', 'read_meta', 'read_stderr', 'read_stdout')
+- required world methods: ('add_idea', 'get_node_record', 'has_code', 'pending_nodes', 'read_code', 'read_meta', 'read_stderr', 'read_stdout', 'run_pending_experiments', 'snapshot', 'write_code')

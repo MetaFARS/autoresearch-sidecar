@@ -6,15 +6,48 @@ It is not a replacement for the target training repo. Instead, it attaches to an
 
 ## What It Is
 
-- `runtime.py`: generic role / phase / tool runtime
-- `bundle.py`: target-repo adapter and contract manifest
-- `world.py`: experiment execution backend for a target repo
-- `program.py`: autoresearch planner + implementer workflow
-- `main.py`: CLI entrypoint
+- **Entry / Bootstrap**
+- `main.py`: thin repository-root entrypoint
+- `autoresearch_sidecar/cli.py`: CLI wiring, env loading, and application bootstrap
+- **Orchestrator**
+- `autoresearch_sidecar/orchestrator.py`: iteration orchestration over proposals, implementation, and execution
+- `autoresearch_sidecar/orchestrator_factory.py`: builds planner and implementer workflows from work context
+- `autoresearch_sidecar/orchestrator_validators.py`: proposal and train.py validation helpers
+- **Workflow Spec**
+- `autoresearch_sidecar/workflow_spec.py`: role / phase / output contracts consumed by the runtime
+- **Agent Runtime**
+- `autoresearch_sidecar/agent_runtime.py`: prompt assembly, LLM loop, tool loop, and phase execution
+- `autoresearch_sidecar/agent_trace.py`: trace helpers and diff utilities
+- **Tool Environment**
+- `autoresearch_sidecar/tool_environment.py`: tool definitions, tool host, and tool call parsing
+- `autoresearch_sidecar/backend_protocol.py`: backend port and inspection tool boundaries
+- **Work Context**
+- `autoresearch_sidecar/work_context.py`: static experiment context and target contract
+- `autoresearch_sidecar/experiment_contract.py`: target-repo contract manifest
+- **Execution Environment**
+- `autoresearch_sidecar/experiment_backend.py`: experiment persistence, inspection, and execution state
+- `autoresearch_sidecar/experiment_executor.py`: async experiment execution worker
+## Architecture
+
+```mermaid
+flowchart TD
+    O[Orchestrator\nroles, phases, commitments, workflow] --> S[Workflow Spec\nRoleSpec, PhaseSpec,\nOutputSpec]
+    S --> R[Agent Runtime\nprompt assembly, LLM loop,\ntool loop, output validation, trace]
+    R --> L[LLM Gateway\nChatCompletionClient]
+    R --> T[Tool Environment\nToolEnvironment, ToolHost,\ninspection handlers]
+    O --> W[Work Context\nexperiment context,\ntarget contract]
+    T --> B[Execution Environment\nExperimentBackend,\nExperimentExecutor]
+    W --> B
+    E[Entry / Bootstrap\nmain.py, cli.py] --> O
+    E --> R
+    E --> T
+    E --> W
+    E --> B
+```
 
 ## Target Repo Assumptions
 
-The default bundle is built for the Karpathy `autoresearch` training shape:
+The default experiment contract is built for the Karpathy `autoresearch` training shape:
 
 - the target repo has a root-level `train.py`
 - the target repo has a root-level `prepare.py`
@@ -42,6 +75,12 @@ Run against a target repo:
 
 ```bash
 uv run python3 main.py --repo-root /path/to/autoresearch-repo
+```
+
+Or use the package entrypoint:
+
+```bash
+uv run autoresearch-sidecar --repo-root /path/to/autoresearch-repo
 ```
 
 If `autoresearch-sidecar` itself is the current repo root:
@@ -93,16 +132,30 @@ Relevant variables:
 ├── .gitignore
 ├── .env.example
 ├── main.py
-├── runtime.py
-├── bundle.py
-├── world.py
-└── program.py
+├── tests/
+└── autoresearch_sidecar/
+    ├── __init__.py
+    ├── cli.py
+    ├── agent_runtime.py
+    ├── work_context.py
+    ├── workflow_spec.py
+    ├── tool_environment.py
+    ├── agent_trace.py
+    ├── backend_protocol.py
+    ├── experiment_contract.py
+    ├── experiment_backend.py
+    ├── experiment_executor.py
+    ├── orchestrator.py
+    ├── orchestrator_factory.py
+    └── orchestrator_validators.py
 ```
+
+`tests/` stays at the repository root while active application code lives under `autoresearch_sidecar/`.
 
 ## Contributors
 
 - Mingli Yuan
-- Wenhao LI
+- Wenhao Li
 
 ## License
 
