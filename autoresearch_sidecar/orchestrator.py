@@ -8,9 +8,10 @@ from .orchestrator_validators import validate_train_py_against_parent
 
 
 class ExperimentOrchestrator:
-    def __init__(self, contract: ExperimentContract, allowed_tools: tuple[str, ...], runner: RoleRunner) -> None:
+    def __init__(self, contract: ExperimentContract, runner: RoleRunner) -> None:
         self.contract = contract
         self.runner = runner
+        allowed_tools = tuple(contract.tools.tool_specs)
         self.planner_role = build_planner_role(contract.work_context, allowed_tools)
         self.implementer_role = build_implementer_role(contract.work_context, allowed_tools)
 
@@ -33,8 +34,10 @@ class ExperimentOrchestrator:
         new_node_ids: list[str] = []
         for proposal in proposals:
             parent_id = proposal["parent_id"]
-            if parent_id is not None and not backend.has_node(parent_id):
+            if parent_id is None or not backend.has_node(parent_id):
                 parent_id = fallback_parent
+            if parent_id is None:
+                raise ValueError("Unable to resolve a parent node for the proposal.")
             node = backend.add_experiment(
                 parent_id=parent_id,
                 tldr=str(proposal["tldr"]),
@@ -51,9 +54,9 @@ class ExperimentOrchestrator:
         snapshot = backend.snapshot()
         for node_id in pending_ids:
             node = backend.get_node_record(node_id)
-            parent_id = node.get("parent_id") or backend.get_root_id()
+            parent_id = node.get("parent_id")
             if parent_id is None:
-                raise ValueError(f"Node {node_id} has no parent and backend has no root.")
+                raise ValueError(f"Node {node_id} has no resolved parent.")
             if not isinstance(parent_id, str):
                 raise ValueError(f"Node {node_id} has invalid parent id {parent_id!r}.")
             parent_source = backend.read_code(parent_id)

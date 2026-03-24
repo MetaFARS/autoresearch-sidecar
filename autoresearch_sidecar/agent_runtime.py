@@ -76,6 +76,7 @@ class RoleRunner:
 
         state = dict(initial_state)
         for phase in role.phases:
+            self._validate_phase_inputs(role, phase, state)
             raw_output = self._run_phase(role, phase, state)
             parsed = phase.output.parser(raw_output)
             if phase.output.validator is not None:
@@ -90,6 +91,11 @@ class RoleRunner:
                 value=copy_value(parsed),
             )
         return state
+
+    def _validate_phase_inputs(self, role: RoleSpec, phase: PhaseSpec, state: StateDict) -> None:
+        missing = [name for name in phase.reads if name not in state]
+        if missing:
+            raise ValueError(f"Missing phase inputs for {role.name}.{phase.name}: {missing}")
 
     def _run_phase(self, role: RoleSpec, phase: PhaseSpec, state: StateDict) -> str:
         history: list[JsonDict] = [
@@ -158,7 +164,7 @@ class RoleRunner:
         for field_name in phase.reads:
             description = role.field_descriptions.get(field_name, "")
             lines.append(f"\n[{field_name}] {description}" if description else f"\n[{field_name}]")
-            lines.append(self._serialize(state.get(field_name)))
+            lines.append(self._serialize(state[field_name]))
         lines.append("\nEmit the required phase output now.")
         return "\n".join(lines)
 

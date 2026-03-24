@@ -19,7 +19,7 @@ It is not a replacement for the target training repo. Instead, it attaches to an
 - `autoresearch_sidecar/agent_runtime.py`: prompt assembly, LLM loop, tool loop, and phase execution
 - `autoresearch_sidecar/agent_trace.py`: trace helpers and diff utilities
 - **Tool Environment**
-- `autoresearch_sidecar/tool_environment.py`: tool definitions, tool host, and tool call parsing
+- `autoresearch_sidecar/tool_environment.py`: tool catalog, tool host, and tool call parsing
 - `autoresearch_sidecar/backend_protocol.py`: backend port and inspection tool boundaries
 - **Work Context**
 - `autoresearch_sidecar/work_context.py`: static experiment context and target contract
@@ -34,7 +34,7 @@ flowchart TD
     O[Orchestrator\nroles, phases, commitments, workflow] --> S[Workflow Spec\nRoleSpec, PhaseSpec,\nOutputSpec]
     S --> R[Agent Runtime\nprompt assembly, LLM loop,\ntool loop, output validation, trace]
     R --> L[LLM Gateway\nChatCompletionClient]
-    R --> T[Tool Environment\nToolEnvironment, ToolHost,\ninspection handlers]
+    R --> T[Tool Environment\nToolCatalog, ToolHost,\ninspection handlers]
     O --> W[Work Context\nexperiment context,\ntarget contract]
     T --> B[Execution Environment\nExperimentBackend,\nExperimentExecutor]
     W --> B

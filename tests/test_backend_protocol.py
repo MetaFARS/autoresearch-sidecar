@@ -123,7 +123,7 @@ def test_orchestrator_runs_against_asserted_backend(tmp_path) -> None:
     backend: ExperimentBackendPort = assert_experiment_backend_port(backend_impl)
     toolset = assert_inspection_toolset(backend_impl)
     handlers = build_backend_tool_handlers(toolset, tuple(contract.tools.tool_specs))
-    orchestrator = ExperimentOrchestrator(contract, tuple(contract.tools.tool_specs), cast(RoleRunner, FakeRunner()))
+    orchestrator = ExperimentOrchestrator(contract, cast(RoleRunner, FakeRunner()))
 
     new_node_ids = orchestrator.materialize_proposals(
         backend,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from .tool_environment import ToolEnvironment, ToolSpec
+from .tool_environment import ToolCatalog, ToolSpec
 from .experiment_backend import BackendConfig
 from .orchestrator_factory import OrchestratorConfig
 from .work_context import WorkContext
@@ -14,7 +14,7 @@ class ExperimentContract:
     name: str
     backend: BackendConfig
     work_context: WorkContext
-    tools: ToolEnvironment
+    tools: ToolCatalog
     orchestrator: OrchestratorConfig
     default_model: str = "openai/gpt-5.2"
     default_base_url: str = "https://openrouter.ai/api/v1/chat/completions"
@@ -94,7 +94,7 @@ Ground rules derived from the repository contract:
             experiment_context=experiment_context,
             target_contract=target_contract,
         ),
-        tools=ToolEnvironment(tool_specs=tool_specs),
+        tools=ToolCatalog(tool_specs=tool_specs),
         orchestrator=OrchestratorConfig(
             required_parent_anchors=(
                 "from prepare import",

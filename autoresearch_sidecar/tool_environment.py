@@ -21,7 +21,7 @@ class ToolSpec:
 
 
 @dataclass(frozen=True)
-class ToolEnvironment:
+class ToolCatalog:
     tool_specs: Mapping[str, ToolSpec]
 
 
@@ -97,9 +97,17 @@ class ToolHost:
         if "</tool>" in normalized and "<stop>" not in normalized:
             normalized = f"{normalized}<stop>"
 
-        invocation = self.parse(normalized)
-        if invocation is None:
+        matches = list(self.TOOL_CALL_RE.finditer(normalized))
+        if not matches:
             return None
+        if len(matches) > 1:
+            raise RuntimeError("Assistant emitted multiple tool calls in a single turn.")
+        invocation_match = matches[0]
+        invocation = ToolInvocation(
+            name=invocation_match.group("name"),
+            argument=invocation_match.group("argument"),
+            raw_text=invocation_match.group(0).strip(),
+        )
 
         invocation_end = normalized.find(invocation.raw_text)
         if invocation_end < 0:

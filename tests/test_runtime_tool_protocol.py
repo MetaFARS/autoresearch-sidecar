@@ -74,24 +74,50 @@ def test_role_runner_accepts_multiline_args_without_explicit_stop() -> None:
     assert trace[3]["result"] == "note:line-1\nline-2"
 
 
-def test_role_runner_executes_first_tool_block_when_multiple_are_present() -> None:
-    seen_args: list[str] = []
-    trace: list[dict[str, object]] = []
+def test_role_runner_rejects_multiple_tool_blocks_in_one_turn() -> None:
     client = FakeClient(['<tool>read_note("first")</tool><stop><tool>read_note("second")</tool><stop>', "done"])
-
-    def read_note(node_id: str) -> str:
-        seen_args.append(node_id)
-        return f"note:{node_id}"
-
     tool_host = ToolHost(
         {"read_note": ToolSpec(signature="read_note(node_id: str) -> str", description="Read note.")},
-        {"read_note": read_note},
-        trace=trace,
+        {"read_note": lambda node_id: f"note:{node_id}"},
     )
-    runner = RoleRunner(cast(ChatCompletionClient, client), tool_host, trace=trace)
+    runner = RoleRunner(cast(ChatCompletionClient, client), tool_host)
 
-    state = runner.run(_build_role(), {"snapshot": "seed"})
+    try:
+        runner.run(_build_role(), {"snapshot": "seed"})
+    except RuntimeError as exc:
+        assert "multiple tool calls" in str(exc)
+    else:
+        raise AssertionError("Expected multiple tool calls in one turn to be rejected.")
 
-    assert state["experiment_notes"] == "done"
-    assert seen_args == ["first"]
-    assert trace[2]["argument"] == "first"
+
+def test_role_runner_rejects_missing_phase_reads() -> None:
+    client = FakeClient(["grounded note"])
+    tool_host = ToolHost({}, {})
+    runner = RoleRunner(cast(ChatCompletionClient, client), tool_host)
+    role = RoleSpec(
+        name="planner",
+        purpose="Collect experiment notes.",
+        system_context="ctx",
+        required_inputs=("snapshot",),
+        field_descriptions={"snapshot": "Snapshot.", "missing": "Missing."},
+        phases=(
+            PhaseSpec(
+                name="investigate",
+                purpose="Inspect one node.",
+                reads=("snapshot", "missing"),
+                writes="experiment_notes",
+                instructions="Return text.",
+                output=OutputSpec(
+                    instructions="Return text.",
+                    parser=lambda raw: raw.strip(),
+                ),
+            ),
+        ),
+    )
+
+    try:
+        runner.run(role, {"snapshot": "seed"})
+    except ValueError as exc:
+        assert "Missing phase inputs" in str(exc)
+    else:
+        raise AssertionError("Expected missing phase reads to fail fast.")

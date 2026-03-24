@@ -71,8 +71,6 @@ async def run_orchestration_loop(
 
     contract = make_karpathy_experiment_contract(repo_root=repo_root, namespace_dir=namespace_dir)
     api_key = os.getenv("OPENROUTER_API_KEY", "")
-    if not api_key:
-        raise RuntimeError("OPENROUTER_API_KEY is not set.")
 
     backend_impl = ExperimentBackend(contract.backend, gpu_ids=gpu_ids)
     root = backend_impl.initialize(clear=True)
@@ -81,19 +79,22 @@ async def run_orchestration_loop(
     trace: list[JsonDict] = []
     resolved_base_url = base_url or os.getenv("OPENROUTER_BASE_URL") or contract.default_base_url
     resolved_model = model or os.getenv("AUTORESEARCH_MODEL") or contract.default_model
-
-    client = ChatCompletionClient(
-        base_url=resolved_base_url,
-        api_key=api_key,
-        model=resolved_model,
-    )
-    tool_host = ToolHost(
-        contract.tools.tool_specs,
-        build_backend_tool_handlers(toolset, tuple(contract.tools.tool_specs)),
-        trace=trace,
-    )
-    runner = RoleRunner(client, tool_host, trace=trace, debug_mode=debug)
-    orchestrator = ExperimentOrchestrator(contract, tuple(contract.tools.tool_specs), runner)
+    orchestrator: ExperimentOrchestrator | None = None
+    if max_iterations > 0:
+        if not api_key:
+            raise RuntimeError("OPENROUTER_API_KEY is not set.")
+        client = ChatCompletionClient(
+            base_url=resolved_base_url,
+            api_key=api_key,
+            model=resolved_model,
+        )
+        tool_host = ToolHost(
+            contract.tools.tool_specs,
+            build_backend_tool_handlers(toolset, tuple(contract.tools.tool_specs)),
+            trace=trace,
+        )
+        runner = RoleRunner(client, tool_host, trace=trace, debug_mode=debug)
+        orchestrator = ExperimentOrchestrator(contract, runner)
 
     try:
         print(f"Target repo: {repo_root}", flush=True)
@@ -106,6 +107,8 @@ async def run_orchestration_loop(
             return
 
         for index in range(max_iterations):
+            if orchestrator is None:
+                raise RuntimeError("Orchestrator is not available for iterative execution.")
             print(f"\n{'=' * 20} Iteration {index + 1} / {max_iterations} {'=' * 20}", flush=True)
             new_node_ids = await orchestrator.run_iteration(backend)
             print(f"New nodes: {new_node_ids}", flush=True)
