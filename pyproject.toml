@@ -19,10 +19,8 @@ package = true
 include = ["autoresearch_sidecar"]
 
 [tool.ruff]
-extend-exclude = ["v0", "v1", "v2", "v3", "v4", "v5", "v6"]
 
 [tool.mypy]
-exclude = "^(v0|v1|v2|v3|v4|v5|v6)/"
 
 [[tool.mypy.overrides]]
 module = ["requests"]

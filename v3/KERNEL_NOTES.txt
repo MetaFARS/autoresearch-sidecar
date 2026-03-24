@@ -1,7 +1,0 @@
-Residual kernel emission added.
-
-Key files:
-- compiler.py: now records serializable binding expressions and exposes emit_python_kernel() / write_python_kernel().
-- compiled_kernel.py: standalone residual runtime emitted from CompiledProgram; no imports from dsl.py, compiler.py, or runtime.py.
-- main_residual.py: entrypoint using the emitted kernel instead of the generic runtime.
-- smoke_test_residual.py: minimal end-to-end verification using a FakeClient.
