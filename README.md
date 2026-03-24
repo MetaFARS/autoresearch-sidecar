@@ -102,6 +102,7 @@ Relevant variables:
 ## Contributors
 
 - Mingli Yuan
+- Wenhao LI
 
 ## License
 
