@@ -5,7 +5,7 @@ import re
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from .orchestrator_factory import OrchestratorConfig
+    from .orchestrator import OrchestratorConfig
 
 
 def parse_text(raw: str) -> str:

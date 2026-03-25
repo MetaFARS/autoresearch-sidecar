@@ -4,7 +4,7 @@ from typing import cast
 
 from autoresearch_sidecar.agent_runtime import ChatCompletionClient, RoleRunner
 from autoresearch_sidecar.tool_environment import ToolHost, ToolSpec
-from autoresearch_sidecar.workflow_spec import OutputSpec, PhaseSpec, RoleSpec
+from autoresearch_sidecar.workflow_spec import CommitSpec, OutputSpec, PhaseSpec, RoleSpec
 
 
 class FakeClient:
@@ -34,13 +34,16 @@ def test_role_runner_emits_v5_trace_events() -> None:
             PhaseSpec(
                 name="investigate",
                 purpose="Inspect one node.",
+                dominant_mode="observe",
                 reads=("snapshot",),
-                writes="experiment_notes",
                 instructions="Use the tool if needed.",
-                output=OutputSpec(
-                    instructions="Return text.",
-                    parser=lambda raw: raw.strip(),
-                    validator=lambda value: value,
+                commit=CommitSpec(
+                    writes="experiment_notes",
+                    output=OutputSpec(
+                        instructions="Return text.",
+                        parser=lambda raw: raw.strip(),
+                        validator=lambda value: value,
+                    ),
                 ),
                 allow_tools=True,
                 allowed_tools=("read_note",),
@@ -63,6 +66,8 @@ def test_role_runner_emits_v5_trace_events() -> None:
     assert trace[0]["role"] == "planner"
     assert trace[0]["phase"] == "investigate"
     assert trace[0]["stop"] == ["<stop>"]
+    messages = cast(list[dict[str, object]], trace[0]["messages"])
+    assert "Dominant cognitive mode: observe" in str(messages[0]["content"])
     assert trace[2]["tool"] == "read_note"
     assert trace[2]["argument"] == "node-1"
     assert trace[3]["result"] == "note:node-1"

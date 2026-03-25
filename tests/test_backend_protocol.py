@@ -95,6 +95,23 @@ class FakeExperimentBackend:
     async def run_pending_experiments(self) -> None:
         return None
 
+    def snapshot_data(self) -> dict[str, object]:
+        return {
+            "root_ids": ["root"],
+            "nodes": {
+                node_id: {
+                    "node_id": record["node_id"],
+                    "parent_id": record["parent_id"],
+                    "tldr": record["tldr"],
+                    "status": record["status"],
+                    "metric": None,
+                    "memory_gb": None,
+                    "has_code": node_id in self.code,
+                }
+                for node_id, record in self.records.items()
+            },
+        }
+
     def snapshot(self) -> str:
         return "snapshot"
 
@@ -104,6 +121,9 @@ class FakeExperimentBackend:
 
 def test_experiment_backend_assert_rejects_missing_methods() -> None:
     class IncompleteBackend:
+        def snapshot_data(self) -> dict[str, object]:
+            return {}
+
         def snapshot(self) -> str:
             return "snapshot"
 

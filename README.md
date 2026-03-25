@@ -11,10 +11,9 @@ It is not a replacement for the target training repo. Instead, it attaches to an
 - `autoresearch_sidecar/cli.py`: CLI wiring, env loading, and application bootstrap
 - **Orchestrator**
 - `autoresearch_sidecar/orchestrator.py`: iteration orchestration over proposals, implementation, and execution
-- `autoresearch_sidecar/orchestrator_factory.py`: builds planner and implementer workflows from work context
 - `autoresearch_sidecar/orchestrator_validators.py`: proposal and train.py validation helpers
 - **Workflow Spec**
-- `autoresearch_sidecar/workflow_spec.py`: role / phase / output contracts consumed by the runtime
+- `autoresearch_sidecar/workflow_spec.py`: work-structure contracts whose steps also carry dominant cognitive modes
 - **Agent Runtime**
 - `autoresearch_sidecar/agent_runtime.py`: prompt assembly, LLM loop, tool loop, and phase execution
 - `autoresearch_sidecar/agent_trace.py`: trace helpers and diff utilities
@@ -44,6 +43,16 @@ flowchart TD
     E --> W
     E --> B
 ```
+
+Each workflow step keeps its work-structure shape while exposing a dominant cognitive mode: `observe`, `plan`, or `action`.
+
+## Step Anatomy
+
+- `reads` + optional tool usage define how a step observes the current world and work context.
+- `purpose` + `instructions` + role invariants shape how a step plans its local reasoning.
+- model/tool interaction produces the step action result.
+- `commit.output.parser` + `commit.output.validator` + `commit.writes` form the step commit path back into workflow state.
+- In the current work structure, `investigate` and `inspect_parent` are observe-dominant steps, `emit_proposals` is a plan-dominant step, and `emit_train_py` is an action-dominant step.
 
 ## Target Repo Assumptions
 
@@ -146,7 +155,6 @@ Relevant variables:
     ├── experiment_backend.py
     ├── experiment_executor.py
     ├── orchestrator.py
-    ├── orchestrator_factory.py
     └── orchestrator_validators.py
 ```
 

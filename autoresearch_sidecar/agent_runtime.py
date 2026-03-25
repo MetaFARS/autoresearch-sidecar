@@ -78,16 +78,16 @@ class RoleRunner:
         for phase in role.phases:
             self._validate_phase_inputs(role, phase, state)
             raw_output = self._run_phase(role, phase, state)
-            parsed = phase.output.parser(raw_output)
-            if phase.output.validator is not None:
-                parsed = phase.output.validator(parsed)
-            state[phase.writes] = parsed
+            parsed = phase.commit.output.parser(raw_output)
+            if phase.commit.output.validator is not None:
+                parsed = phase.commit.output.validator(parsed)
+            state[phase.commit.writes] = parsed
             emit_trace(
                 self.trace,
                 "phase_output",
                 role=role.name,
                 phase=phase.name,
-                writes=[phase.writes],
+                writes=[phase.commit.writes],
                 value=copy_value(parsed),
             )
         return state
@@ -148,6 +148,8 @@ class RoleRunner:
             f"Role purpose: {role.purpose}",
             f"Current phase: {phase.name}",
             f"Phase purpose: {phase.purpose}",
+            f"Dominant cognitive mode: {phase.dominant_mode}",
+            f"Commit target: {phase.commit.writes}",
             "Phase instructions:",
             phase.instructions.strip(),
         ]
@@ -156,7 +158,7 @@ class RoleRunner:
             lines.extend(f"- {item}" for item in role.invariants)
         if phase.allow_tools:
             lines.append(self.tool_host.render_protocol(phase.allowed_tools))
-        lines.extend(("Output contract:", phase.output.instructions.strip()))
+        lines.extend(("Output contract:", phase.commit.output.instructions.strip()))
         return "\n".join(lines)
 
     def _render_user_prompt(self, role: RoleSpec, phase: PhaseSpec, state: StateDict) -> str:

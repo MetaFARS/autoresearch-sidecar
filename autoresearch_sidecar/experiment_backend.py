@@ -10,6 +10,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Mapping, Optional
 
+from .backend_protocol import ExperimentSnapshot, ExperimentSnapshotNode
 from .experiment_executor import ExperimentExecutor
 
 
@@ -155,31 +156,48 @@ class ExperimentBackend:
     def get_node_record(self, node_id: str) -> dict[str, object]:
         return self.nodes[node_id].as_dict()
 
-    def snapshot(self) -> str:
+    def snapshot_data(self) -> ExperimentSnapshot:
         roots = [nid for nid, node in self.nodes.items() if not node.parent_id or node.parent_id not in self.nodes]
+        nodes: dict[str, ExperimentSnapshotNode] = {}
+        for node_id, node in self.nodes.items():
+            nodes[node_id] = {
+                "node_id": node.node_id,
+                "parent_id": node.parent_id,
+                "tldr": node.tldr,
+                "status": node.status.value,
+                "metric": node.metric,
+                "memory_gb": node.memory_gb,
+                "has_code": self.has_code(node_id),
+            }
+        return {"root_ids": sorted(roots), "nodes": nodes}
+
+    def snapshot(self) -> str:
+        snapshot = self.snapshot_data()
         lines: list[str] = []
 
-        def traverse(nid: str, indent: str = "", visited: set[str] | None = None) -> None:
+        def traverse(nid: str, indent: str, visited: set[str]) -> None:
             seen = visited or set()
             if nid in seen:
                 return
             seen.add(nid)
 
-            node = self.nodes[nid]
+            node = snapshot["nodes"][nid]
             node_info = (
-                f"ID: {node.node_id} | ParentID: {node.parent_id} | TLDR: {node.tldr} | "
-                f"Status: {node.status.value} | val_bpb: {node.metric} | mem_gb: {node.memory_gb}"
+                f"ID: {node['node_id']} | ParentID: {node['parent_id']} | TLDR: {node['tldr']} | "
+                f"Status: {node['status']} | val_bpb: {node['metric']} | mem_gb: {node['memory_gb']}"
             )
             lines.append(f"{indent}* {node_info}")
 
-            children = sorted((cid for cid, child in self.nodes.items() if child.parent_id == nid))
+            children = sorted(
+                cid for cid, child in snapshot["nodes"].items() if child["parent_id"] == nid
+            )
             for index, child_id in enumerate(children):
                 is_last = index == len(children) - 1
                 child_indent = indent + ("  " if is_last else "| ")
                 traverse(child_id, child_indent, seen)
 
-        for root_id in sorted(roots):
-            traverse(root_id)
+        for root_id in snapshot["root_ids"]:
+            traverse(root_id, "", set())
         return "\n".join(lines)
 
     def extract_summary(self, node_id: str) -> dict[str, float | None]:

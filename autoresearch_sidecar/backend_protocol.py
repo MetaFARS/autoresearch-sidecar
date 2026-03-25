@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Protocol, Sequence, TypeGuard, cast
+from typing import Protocol, Sequence, TypeGuard, TypedDict, cast
 
 from .tool_environment import ToolHandler
 
@@ -17,6 +17,7 @@ HOST_BACKEND_METHODS = (
     "pending_nodes",
     "read_code",
     "run_pending_experiments",
+    "snapshot_data",
     "snapshot",
     "write_code",
 )
@@ -27,6 +28,21 @@ INSPECTION_TOOL_METHODS = (
     "read_stdout",
 )
 ExperimentRecord = dict[str, object]
+
+
+class ExperimentSnapshotNode(TypedDict):
+    node_id: str
+    parent_id: str | None
+    tldr: str
+    status: str
+    metric: float | None
+    memory_gb: float | None
+    has_code: bool
+
+
+class ExperimentSnapshot(TypedDict):
+    root_ids: list[str]
+    nodes: dict[str, ExperimentSnapshotNode]
 
 
 class BackendNode(Protocol):
@@ -44,6 +60,7 @@ class ExperimentBackendPort(Protocol):
     def pending_nodes(self) -> Sequence[BackendNode]: ...
     def read_code(self, node_id: str) -> str: ...
     async def run_pending_experiments(self) -> None: ...
+    def snapshot_data(self) -> ExperimentSnapshot: ...
     def snapshot(self) -> str: ...
     def write_code(self, node_id: str, code: str) -> None: ...
 

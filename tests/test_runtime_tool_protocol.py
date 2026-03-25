@@ -4,7 +4,7 @@ from typing import cast
 
 from autoresearch_sidecar.agent_runtime import ChatCompletionClient, RoleRunner
 from autoresearch_sidecar.tool_environment import ToolHost, ToolSpec
-from autoresearch_sidecar.workflow_spec import OutputSpec, PhaseSpec, RoleSpec
+from autoresearch_sidecar.workflow_spec import CommitSpec, OutputSpec, PhaseSpec, RoleSpec
 
 
 class FakeClient:
@@ -26,13 +26,16 @@ def _build_role() -> RoleSpec:
             PhaseSpec(
                 name="investigate",
                 purpose="Inspect one node.",
+                dominant_mode="observe",
                 reads=("snapshot",),
-                writes="experiment_notes",
                 instructions="Use the tool if needed.",
-                output=OutputSpec(
-                    instructions="Return text.",
-                    parser=lambda raw: raw.strip(),
-                    validator=lambda value: value,
+                commit=CommitSpec(
+                    writes="experiment_notes",
+                    output=OutputSpec(
+                        instructions="Return text.",
+                        parser=lambda raw: raw.strip(),
+                        validator=lambda value: value,
+                    ),
                 ),
                 allow_tools=True,
                 allowed_tools=("read_note",),
@@ -104,12 +107,15 @@ def test_role_runner_rejects_missing_phase_reads() -> None:
             PhaseSpec(
                 name="investigate",
                 purpose="Inspect one node.",
+                dominant_mode="observe",
                 reads=("snapshot", "missing"),
-                writes="experiment_notes",
                 instructions="Return text.",
-                output=OutputSpec(
-                    instructions="Return text.",
-                    parser=lambda raw: raw.strip(),
+                commit=CommitSpec(
+                    writes="experiment_notes",
+                    output=OutputSpec(
+                        instructions="Return text.",
+                        parser=lambda raw: raw.strip(),
+                    ),
                 ),
             ),
         ),

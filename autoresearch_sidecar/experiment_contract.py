@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .tool_environment import ToolCatalog, ToolSpec
 from .experiment_backend import BackendConfig
-from .orchestrator_factory import OrchestratorConfig
+from .orchestrator import OrchestratorConfig
 from .work_context import WorkContext
 
 
